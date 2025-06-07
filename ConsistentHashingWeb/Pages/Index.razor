@@ -15,54 +15,39 @@
                 <div class="card-body">
                     <h5 class="card-title">Hash Ring Visualization</h5>
                     <div class="hash-ring-container">
-                        <svg @ref="svgElement" viewBox="-110 -110 220 220" class="hash-ring" @onmousemove="HandleSvgMouseMove" @onclick="HandleSvgClick">
-                            <!-- Main circle -->
-                            <circle cx="0" cy="0" r="100" fill="none" stroke="#ccc" stroke-width="2" />
-                            
-                            <!-- Client circle guide -->
-                            <circle cx="0" cy="0" r="80" fill="none" stroke="#e0e0e0" stroke-width="1" stroke-dasharray="4" />
+                        <svg @ref="svgElement" class="hash-ring" viewBox="-110 -110 220 220" @onmousemove="HandleSvgMouseMove" @onclick="HandleSvgClick">
+                            <!-- Client circle -->
+                            <circle cx="0" cy="0" r="80" class="client-circle" />
 
-                            <!-- Circle start/end marker -->
-                            <line x1="0" y1="-100" x2="0" y2="-110" stroke="#666" stroke-width="2" />
-                            <text x="0" y="-115" text-anchor="middle" font-size="8">0</text>
-                            
-                            <!-- Mouse guide line -->
+                            <!-- Guide line -->
                             @if (showPreview)
                             {
-                                <line x1="0" y1="0" x2="@previewX" y2="@previewY" 
-                                      stroke="#666" stroke-width="1" stroke-dasharray="4" />
+                                <line x1="0" y1="0" x2="@previewX" y2="@previewY" class="guide-line" />
+                                <circle cx="@previewX" cy="@previewY" r="3" class="preview-point" />
                             }
 
-                            <!-- Preview point -->
-                            @if (showPreview)
+                            <!-- Server nodes -->
+                            @foreach (var node in CacheSystem.GetVirtualNodePositions())
                             {
-                                <g transform="translate(@previewX,@previewY)">
-                                    <circle cx="0" cy="0" r="3" fill="#0d6efd" opacity="0.5" />
+                                var angle = node.Position * 2 * Math.PI;
+                                var x = Math.Sin(angle) * 80;
+                                var y = -Math.Cos(angle) * 80;
+                                <g transform="translate(@x,@y)">
+                                    <circle cx="0" cy="0" r="4" class="server-node" />
+                                    <text class="node-label">@node.Name</text>
                                 </g>
                             }
 
-                            @{
-                                var virtualNodes = CacheSystem.GetVirtualNodePositions();
-                                var clientNodes = CacheSystem.GetClientPositions();
-                                
-                                foreach (var node in virtualNodes)
-                                {
-                                    var (x, y) = GetCirclePosition(node.Position, 100);
-                                    var color = node.IsDown ? "#dc3545" : "#198754";
-                                    <g transform="translate(@x,@y)">
-                                        <circle cx="0" cy="0" r="5" fill="@color" />
-                                        <text x="8" y="0" font-size="8" alignment-baseline="middle">@node.Name</text>
-                                    </g>
-                                }
-
-                                foreach (var client in clientNodes)
-                                {
-                                    var (x, y) = GetCirclePosition(client.Position, 80);
-                                    <g transform="translate(@x,@y)">
-                                        <circle cx="0" cy="0" r="3" fill="#0d6efd" />
-                                        <text x="5" y="0" font-size="6" alignment-baseline="middle">@client.Id</text>
-                                    </g>
-                                }
+                            <!-- Client nodes -->
+                            @foreach (var client in CacheSystem.GetClientPositions())
+                            {
+                                var angle = client.Position * 2 * Math.PI;
+                                var x = Math.Sin(angle) * 80;
+                                var y = -Math.Cos(angle) * 80;
+                                <g transform="translate(@x,@y)">
+                                    <circle cx="0" cy="0" r="3" class="client-node" />
+                                    <text class="node-label">@client.Id</text>
+                                </g>
                             }
                         </svg>
                     </div>
@@ -225,11 +210,6 @@
             double ratio = 80.0 / distance;
             previewX = mouseX * ratio;
             previewY = mouseY * ratio;
-            
-            // Calculate angle for consistent hashing (0 to 1)
-            double angle = Math.Atan2(previewX, -previewY);
-            if (angle < 0) angle += 2 * Math.PI;
-            angle = angle / (2 * Math.PI);
         }
         else
         {
@@ -247,6 +227,7 @@
             if (angle < 0) angle += 2 * Math.PI;
             angle = angle / (2 * Math.PI);
             
+            // Generate a unique client ID
             newClientId = $"Client{DateTime.Now.Ticks % 1000}";
             CacheSystem.AddClientIdAtPosition(newClientId, angle);
         }
@@ -261,21 +242,6 @@
     private void ToggleServer(string serverName)
     {
         CacheSystem.ToggleServer(serverName);
-    }
-
-    private (double x, double y) GetCirclePosition(double position, double radius)
-    {
-        var angle = position * 2 * Math.PI;
-        return (
-            Math.Sin(angle) * radius,
-            -Math.Cos(angle) * radius
-        );
-    }
-
-    private class Point
-    {
-        public double X { get; set; }
-        public double Y { get; set; }
     }
 
     public void Dispose()
