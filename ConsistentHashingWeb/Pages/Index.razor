@@ -1,6 +1,11 @@
 @page "/"
 @using ConsistentHashingWeb.Services
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
 @inject CacheSystemService CacheSystem
+@inject IJSRuntime JS
+
+<PageTitle>Consistent Hashing Visualization</PageTitle>
 
 <div class="container-fluid mt-3">
     <div class="row">
@@ -10,10 +15,32 @@
                 <div class="card-body">
                     <h5 class="card-title">Hash Ring Visualization</h5>
                     <div class="hash-ring-container">
-                        <svg viewBox="-110 -110 220 220" class="hash-ring">
+                        <svg @ref="svgElement" viewBox="-110 -110 220 220" class="hash-ring" @onmousemove="HandleSvgMouseMove" @onclick="HandleSvgClick">
                             <!-- Main circle -->
                             <circle cx="0" cy="0" r="100" fill="none" stroke="#ccc" stroke-width="2" />
                             
+                            <!-- Client circle guide -->
+                            <circle cx="0" cy="0" r="80" fill="none" stroke="#e0e0e0" stroke-width="1" stroke-dasharray="4" />
+
+                            <!-- Circle start/end marker -->
+                            <line x1="0" y1="-100" x2="0" y2="-110" stroke="#666" stroke-width="2" />
+                            <text x="0" y="-115" text-anchor="middle" font-size="8">0</text>
+                            
+                            <!-- Mouse guide line -->
+                            @if (showPreview)
+                            {
+                                <line x1="0" y1="0" x2="@previewX" y2="@previewY" 
+                                      stroke="#666" stroke-width="1" stroke-dasharray="4" />
+                            }
+
+                            <!-- Preview point -->
+                            @if (showPreview)
+                            {
+                                <g transform="translate(@previewX,@previewY)">
+                                    <circle cx="0" cy="0" r="3" fill="#0d6efd" opacity="0.5" />
+                                </g>
+                            }
+
                             @{
                                 var virtualNodes = CacheSystem.GetVirtualNodePositions();
                                 var clientNodes = CacheSystem.GetClientPositions();
@@ -74,9 +101,12 @@
             <!-- Add Client -->
             <div class="card mb-3">
                 <div class="card-body">
-                    <div class="input-group input-group-sm">
-                        <input type="text" class="form-control" @bind="newClientId" placeholder="Enter client ID" />
-                        <button class="btn btn-primary" @onclick="AddClientId">Add Client</button>
+                    <div class="input-group mb-3">
+                        <input type="text" class="form-control" placeholder="Enter client ID" 
+                               @bind="newClientId" @bind:event="oninput" />
+                        <button class="btn btn-outline-primary" type="button" disabled>
+                            Add Client
+                        </button>
                     </div>
                 </div>
             </div>
@@ -108,6 +138,9 @@
         width: 100%;
         padding-bottom: 100%;
         position: relative;
+        max-width: 600px;
+        margin: 0 auto;
+        aspect-ratio: 1;
     }
 
     .hash-ring {
@@ -116,11 +149,25 @@
         left: 0;
         width: 100%;
         height: 100%;
+        cursor: crosshair;
+        display: block;
     }
 </style>
 
 @code {
     private string newClientId = "";
+    private bool showPreview = false;
+    private double previewX = 0;
+    private double previewY = 0;
+    private ElementReference svgElement;
+    private double svgWidth = 220;
+    private double svgHeight = 220;
+
+    private class DOMRect
+    {
+        public double Width { get; set; }
+        public double Height { get; set; }
+    }
 
     protected override void OnInitialized()
     {
@@ -141,13 +188,74 @@
         CacheSystem.OnChange += StateHasChanged;
     }
 
-    private void AddClientId()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!string.IsNullOrWhiteSpace(newClientId))
+        if (firstRender)
         {
-            CacheSystem.AddClientId(newClientId);
-            newClientId = "";
+            var rect = await JS.InvokeAsync<DOMRect>("getBoundingClientRect", svgElement);
+            svgWidth = rect.Width;
+            svgHeight = rect.Height;
         }
+    }
+
+    private void HandleSvgMouseMove(MouseEventArgs e)
+    {
+        // Calculate the center point
+        var centerX = svgWidth / 2;
+        var centerY = svgHeight / 2;
+        
+        // Calculate relative mouse position from center
+        double relativeX = e.OffsetX - centerX;
+        double relativeY = e.OffsetY - centerY;
+        
+        // Scale to SVG coordinates (-110 to 110)
+        double scale = 220.0 / Math.Min(svgWidth, svgHeight);
+        double mouseX = relativeX * scale;
+        double mouseY = relativeY * scale;
+        
+        // Calculate distance from center
+        double distance = Math.Sqrt(mouseX * mouseX + mouseY * mouseY);
+        
+        // Only show preview when mouse is near the client circle (radius 80)
+        if (Math.Abs(distance - 80) < 5)
+        {
+            showPreview = true;
+            
+            // Project the point onto the circle with radius 80
+            double ratio = 80.0 / distance;
+            previewX = mouseX * ratio;
+            previewY = mouseY * ratio;
+            
+            // Calculate angle for consistent hashing (0 to 1)
+            double angle = Math.Atan2(previewX, -previewY);
+            if (angle < 0) angle += 2 * Math.PI;
+            angle = angle / (2 * Math.PI);
+        }
+        else
+        {
+            showPreview = false;
+        }
+        StateHasChanged();
+    }
+
+    private void HandleSvgClick(MouseEventArgs e)
+    {
+        if (showPreview)
+        {
+            // Calculate angle from preview point position
+            double angle = Math.Atan2(previewX, -previewY);
+            if (angle < 0) angle += 2 * Math.PI;
+            angle = angle / (2 * Math.PI);
+            
+            newClientId = $"Client{DateTime.Now.Ticks % 1000}";
+            CacheSystem.AddClientIdAtPosition(newClientId, angle);
+        }
+    }
+
+    private void AddNewServer()
+    {
+        var serverCount = CacheSystem.GetAllServers().Count() + 1;
+        CacheSystem.AddServer("Server-" + serverCount);
     }
 
     private void ToggleServer(string serverName)
@@ -162,6 +270,12 @@
             Math.Sin(angle) * radius,
             -Math.Cos(angle) * radius
         );
+    }
+
+    private class Point
+    {
+        public double X { get; set; }
+        public double Y { get; set; }
     }
 
     public void Dispose()

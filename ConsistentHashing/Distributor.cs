@@ -83,6 +83,27 @@ namespace ConsistentHashing
             }
         }
 
+        public void AddClientIdAtPosition(string clientId, double position)
+        {
+            if (_servers.Count == 0)
+                return;
+
+            // Convert position (0-1) to hash string
+            var hashValue = (BigInteger)(position * (double)MAX_HASH);
+            string hash = hashValue.ToString("X40").PadLeft(40, '0');
+            string serverName = FindServerForHash(hash);
+            
+            if (string.IsNullOrEmpty(serverName))
+                return;
+
+            var server = _servers[serverName];
+            if (!server.IsDown)
+            {
+                server.AddClientId(clientId);
+                _noSqlTable.SaveMapping(clientId, serverName);
+            }
+        }
+
         public void ToggleServer(string serverName)
         {
             if (!_servers.ContainsKey(serverName))

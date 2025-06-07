@@ -53,6 +53,12 @@ namespace ConsistentHashingWeb.Services
             NotifyStateChanged();
         }
 
+        public void AddClientIdAtPosition(string clientId, double position)
+        {
+            _distributor.AddClientIdAtPosition(clientId, position);
+            NotifyStateChanged();
+        }
+
         public Dictionary<string, string> GetClientServerMappings()
         {
             var mappings = new Dictionary<string, string>();
