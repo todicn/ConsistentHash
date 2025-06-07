@@ -1,0 +1,171 @@
+@page "/"
+@using ConsistentHashingWeb.Services
+@inject CacheSystemService CacheSystem
+
+<div class="container-fluid mt-3">
+    <div class="row">
+        <!-- Left Column: Hash Ring Visualization -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Hash Ring Visualization</h5>
+                    <div class="hash-ring-container">
+                        <svg viewBox="-110 -110 220 220" class="hash-ring">
+                            <!-- Main circle -->
+                            <circle cx="0" cy="0" r="100" fill="none" stroke="#ccc" stroke-width="2" />
+                            
+                            @{
+                                var virtualNodes = CacheSystem.GetVirtualNodePositions();
+                                var clientNodes = CacheSystem.GetClientPositions();
+                                
+                                foreach (var node in virtualNodes)
+                                {
+                                    var (x, y) = GetCirclePosition(node.Position, 100);
+                                    var color = node.IsDown ? "#dc3545" : "#198754";
+                                    <g transform="translate(@x,@y)">
+                                        <circle cx="0" cy="0" r="5" fill="@color" />
+                                        <text x="8" y="0" font-size="8" alignment-baseline="middle">@node.Name</text>
+                                    </g>
+                                }
+
+                                foreach (var client in clientNodes)
+                                {
+                                    var (x, y) = GetCirclePosition(client.Position, 80);
+                                    <g transform="translate(@x,@y)">
+                                        <circle cx="0" cy="0" r="3" fill="#0d6efd" />
+                                        <text x="5" y="0" font-size="6" alignment-baseline="middle">@client.Id</text>
+                                    </g>
+                                }
+                            }
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Controls and Info -->
+        <div class="col-md-6">
+            <!-- Client-Server Mappings -->
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h5 class="card-title">Client-Server Mappings</h5>
+                    <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Client ID</th>
+                                    <th>Server</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var mapping in CacheSystem.GetClientServerMappings())
+                                {
+                                    <tr>
+                                        <td>@mapping.Key</td>
+                                        <td>@mapping.Value</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add Client -->
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="input-group input-group-sm">
+                        <input type="text" class="form-control" @bind="newClientId" placeholder="Enter client ID" />
+                        <button class="btn btn-primary" @onclick="AddClientId">Add Client</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Server Status Cards -->
+            <div class="row g-2">
+                @foreach (var server in CacheSystem.GetAllServers())
+                {
+                    <div class="col-md-6">
+                        <div class="card @(server.IsDown ? "bg-danger" : "bg-success") text-white">
+                            <div class="card-body p-2">
+                                <h6 class="card-title mb-1">@server.Name</h6>
+                                <p class="card-text small mb-1">Status: @(server.IsDown ? "Down" : "Up")</p>
+                                <p class="card-text small mb-1">Clients: @server.ClientIds.Count</p>
+                                <button class="btn btn-warning btn-sm" @onclick="() => ToggleServer(server.Name)">
+                                    @(server.IsDown ? "Bring Up" : "Shut Down")
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .hash-ring-container {
+        width: 100%;
+        padding-bottom: 100%;
+        position: relative;
+    }
+
+    .hash-ring {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+
+@code {
+    private string newClientId = "";
+
+    protected override void OnInitialized()
+    {
+        // Initialize test configuration with two servers
+        if (!CacheSystem.GetAllServers().Any())
+        {
+            CacheSystem.AddServer("Server-A");
+            CacheSystem.AddServer("Server-B");
+            
+            // Add some test client IDs
+            var testClients = new[] { "Client1", "Client2", "Client3", "Client4", "Client5" };
+            foreach (var client in testClients)
+            {
+                CacheSystem.AddClientId(client);
+            }
+        }
+
+        CacheSystem.OnChange += StateHasChanged;
+    }
+
+    private void AddClientId()
+    {
+        if (!string.IsNullOrWhiteSpace(newClientId))
+        {
+            CacheSystem.AddClientId(newClientId);
+            newClientId = "";
+        }
+    }
+
+    private void ToggleServer(string serverName)
+    {
+        CacheSystem.ToggleServer(serverName);
+    }
+
+    private (double x, double y) GetCirclePosition(double position, double radius)
+    {
+        var angle = position * 2 * Math.PI;
+        return (
+            Math.Sin(angle) * radius,
+            -Math.Cos(angle) * radius
+        );
+    }
+
+    public void Dispose()
+    {
+        CacheSystem.OnChange -= StateHasChanged;
+    }
+} 
