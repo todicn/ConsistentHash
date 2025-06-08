@@ -2,25 +2,14 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Launch Blazor WebAssembly",
-            "type": "coreclr",
+            "name": "Launch and Debug Blazor WASM",
+            "type": "blazorwasm",
             "request": "launch",
-            "preLaunchTask": "build",
-            "program": "dotnet",
-            "args": [
-                "run",
-                "--project",
-                "${workspaceFolder}/ConsistentHashingWeb/ConsistentHashingWeb.csproj"
-            ],
-            "cwd": "${workspaceFolder}",
-            "stopAtEntry": false,
-            "serverReadyAction": {
-                "action": "openExternally",
-                "pattern": "\\bNow listening on:\\s+(https?://\\S+)"
-            },
-            "env": {
-                "ASPNETCORE_ENVIRONMENT": "Development"
-            }
+            "cwd": "${workspaceFolder}/ConsistentHashingWeb",
+            "url": "http://localhost:5000",
+            "browser": "edge",
+            "webRoot": "${workspaceFolder}/ConsistentHashingWeb",
+            "inspectUri": "{wsProtocol}://{url.hostname}:{url.port}/_framework/debug/ws-proxy?browser={browserInspectUri}"
         },
         {
             "name": "Debug Core Library Tests",

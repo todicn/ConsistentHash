@@ -32,11 +32,36 @@ namespace ConsistentHashing
 
             _servers[server.Name] = server;
             
-            // Add virtual nodes
+            // Add virtual nodes with direct hash values
+            var baseValue = BigInteger.Parse(server.Name, System.Globalization.NumberStyles.HexNumber);
+            Console.WriteLine($"Base server value: {baseValue.ToString("X40")}");
+            
+            // Calculate range for random offsets (1/8th of hash space)
+            var range = BigInteger.Parse("2000000000000000000000000000000000000000", System.Globalization.NumberStyles.HexNumber);
+            var random = new Random();
+            
             for (int i = 0; i < _virtualNodeCount; i++)
             {
-                string virtualNodeName = $"{server.Name}-{i}";
-                string hash = ComputeHash(virtualNodeName);
+                // Generate random bytes for the offset
+                byte[] bytes = new byte[20]; // 160 bits = 40 hex chars
+                random.NextBytes(bytes);
+                var randomBig = new BigInteger(bytes);
+                if (randomBig < 0) randomBig = -randomBig; // Ensure positive
+                
+                // Scale the random number to our desired range and add to base
+                var offset = (randomBig * range) / BigInteger.Parse("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", System.Globalization.NumberStyles.HexNumber);
+                Console.WriteLine($"Random offset {i}: {offset.ToString("X40")}");
+                
+                // Add offset to base value and handle wrapping
+                var hashValue = baseValue + offset;
+                if (hashValue >= MAX_HASH)
+                {
+                    hashValue -= MAX_HASH;
+                }
+                Console.WriteLine($"Hash value {i}: {hashValue.ToString("X40")}");
+                
+                string hash = hashValue.ToString("X40").PadLeft(40, '0');
+                Console.WriteLine($"Final hash {i}: {hash}");
                 _virtualNodes[hash] = server.Name;
             }
 
@@ -78,8 +103,8 @@ namespace ConsistentHashing
             var server = _servers[serverName];
             if (!server.IsDown)
             {
-                server.AddClientId(clientId);
-                _noSqlTable.SaveMapping(clientId, serverName);
+                server.AddClientId(hash);
+                _noSqlTable.SaveMapping(hash, serverName);
             }
         }
 
@@ -88,9 +113,27 @@ namespace ConsistentHashing
             if (_servers.Count == 0)
                 return;
 
-            // Convert position (0-1) to hash string
-            var hashValue = (BigInteger)(position * (double)MAX_HASH);
-            string hash = hashValue.ToString("X40").PadLeft(40, '0');
+            Console.WriteLine($"Adding client at position: {position}");
+            
+            // Convert position (0-1) to a hash value by calculating each hex digit
+            var hexDigits = "0123456789ABCDEF";
+            var hashBuilder = new System.Text.StringBuilder();
+            
+            // Use position to generate all 40 hex digits
+            double currentPosition = position;
+            for (int i = 0; i < 40; i++)
+            {
+                // Scale current position to 0-16 range
+                currentPosition *= 16;
+                // Get the integer part as hex digit
+                int digit = (int)currentPosition;
+                hashBuilder.Append(hexDigits[digit]);
+                // Keep the fractional part for next iteration
+                currentPosition -= digit;
+            }
+            
+            var hash = hashBuilder.ToString();
+            Console.WriteLine($"Generated hash: {hash}");
             string serverName = FindServerForHash(hash);
             
             if (string.IsNullOrEmpty(serverName))
@@ -99,8 +142,8 @@ namespace ConsistentHashing
             var server = _servers[serverName];
             if (!server.IsDown)
             {
-                server.AddClientId(clientId);
-                _noSqlTable.SaveMapping(clientId, serverName);
+                server.AddClientId(hash);
+                _noSqlTable.SaveMapping(hash, serverName);
             }
         }
 
@@ -129,16 +172,10 @@ namespace ConsistentHashing
         public IEnumerable<VirtualNodeInfo> GetVirtualNodePositions()
         {
             return _virtualNodes
-                .Select(kvp => new
-                {
-                    Hash = kvp.Key,
-                    ServerName = kvp.Value,
-                    Position = BigInteger.Parse(kvp.Key, System.Globalization.NumberStyles.HexNumber)
-                })
-                .Select(n => new VirtualNodeInfo(
-                    $"{n.ServerName}-{n.Hash[..4]}",
-                    (double)n.Position / (double)MAX_HASH,
-                    _servers[n.ServerName].IsDown
+                .Select(kvp => new VirtualNodeInfo(
+                    kvp.Key,
+                    (double)BigInteger.Parse(kvp.Key, System.Globalization.NumberStyles.HexNumber) / (double)MAX_HASH,
+                    _servers.TryGetValue(kvp.Value, out var server) && server.IsDown
                 ))
                 .OrderBy(n => n.Position);
         }
@@ -149,8 +186,7 @@ namespace ConsistentHashing
                 .SelectMany(s => s.ClientIds)
                 .Select(clientId =>
                 {
-                    var hash = ComputeHash(clientId);
-                    var position = BigInteger.Parse(hash, System.Globalization.NumberStyles.HexNumber);
+                    var position = BigInteger.Parse(clientId, System.Globalization.NumberStyles.HexNumber);
                     return new ClientNodeInfo(
                         clientId,
                         (double)position / (double)MAX_HASH
@@ -179,13 +215,16 @@ namespace ConsistentHashing
 
         private void RedistributeClient(string clientId)
         {
+            if (string.IsNullOrEmpty(clientId))
+                return;
+
             int retryCount = 0;
             string hash = ComputeHash(clientId);
 
             while (retryCount < MAX_RETRY)
             {
                 string serverName = FindServerForHash(hash);
-                if (string.IsNullOrEmpty(serverName))
+                if (string.IsNullOrEmpty(serverName) || !_servers.ContainsKey(serverName))
                     return;
 
                 var server = _servers[serverName];
@@ -216,7 +255,7 @@ namespace ConsistentHashing
                 serverHash = _virtualNodes.Keys.Min();
             }
 
-            return _virtualNodes[serverHash];
+            return _virtualNodes.TryGetValue(serverHash ?? string.Empty, out var serverName) ? serverName : string.Empty;
         }
 
         private static string ComputeHash(string input)

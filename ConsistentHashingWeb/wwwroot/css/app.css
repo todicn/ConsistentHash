@@ -61,7 +61,7 @@ h1:focus {
 }
 
 .node-label {
-    font-size: 8px;
+    font-size: 6px;
     fill: #333;
     text-anchor: middle;
     dominant-baseline: text-after-edge;

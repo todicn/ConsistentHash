@@ -2,6 +2,7 @@
 @using ConsistentHashingWeb.Services
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.JSInterop
+@using System.Numerics
 @inject CacheSystemService CacheSystem
 @inject IJSRuntime JS
 
@@ -34,7 +35,7 @@
                                 var y = -Math.Cos(angle) * 80;
                                 <g transform="translate(@x,@y)">
                                     <circle cx="0" cy="0" r="4" class="server-node" />
-                                    <text class="node-label">@node.Name</text>
+                                    <text class="node-label">S@(node.Name[..3])</text>
                                 </g>
                             }
 
@@ -46,7 +47,7 @@
                                 var y = -Math.Cos(angle) * 80;
                                 <g transform="translate(@x,@y)">
                                     <circle cx="0" cy="0" r="3" class="client-node" />
-                                    <text class="node-label">@client.Id</text>
+                                    <text class="node-label">C@(client.Id[..3])</text>
                                 </g>
                             }
                         </svg>
@@ -89,7 +90,7 @@
                     <div class="input-group mb-3">
                         <input type="text" class="form-control" placeholder="Enter client ID" 
                                @bind="newClientId" @bind:event="oninput" />
-                        <button class="btn btn-outline-primary" type="button" disabled>
+                        <button class="btn btn-outline-primary" type="button" @onclick="() => CacheSystem.AddClientId(newClientId)">
                             Add Client
                         </button>
                     </div>
@@ -140,6 +141,7 @@
 </style>
 
 @code {
+    private static readonly BigInteger MAX_HASH = BigInteger.Parse("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", System.Globalization.NumberStyles.HexNumber);
     private string newClientId = "";
     private bool showPreview = false;
     private double previewX = 0;
@@ -156,18 +158,19 @@
 
     protected override void OnInitialized()
     {
-        // Initialize test configuration with two servers
+        // Initialize test configuration with two servers at opposite positions
         if (!CacheSystem.GetAllServers().Any())
         {
-            CacheSystem.AddServer("Server-A");
-            CacheSystem.AddServer("Server-B");
+            // Create two servers at 1/4 and 3/4 of the hash space
+            // Use exact hex values to position servers
+            var server1Hash = "4000000000000000000000000000000000000000"; // 1/4 of hash space
+            var server2Hash = "C000000000000000000000000000000000000000"; // 3/4 of hash space
             
-            // Add some test client IDs
-            var testClients = new[] { "Client1", "Client2", "Client3", "Client4", "Client5" };
-            foreach (var client in testClients)
-            {
-                CacheSystem.AddClientId(client);
-            }
+            Console.WriteLine($"Server 1 hash: {server1Hash}");
+            Console.WriteLine($"Server 2 hash: {server2Hash}");
+            
+            CacheSystem.AddServer(server1Hash);
+            CacheSystem.AddServer(server2Hash);
         }
 
         CacheSystem.OnChange += StateHasChanged;
@@ -202,7 +205,7 @@
         double distance = Math.Sqrt(mouseX * mouseX + mouseY * mouseY);
         
         // Only show preview when mouse is near the client circle (radius 80)
-        if (Math.Abs(distance - 80) < 5)
+        if (Math.Abs(distance - 80) < 20)
         {
             showPreview = true;
             
@@ -222,14 +225,46 @@
     {
         if (showPreview)
         {
-            // Calculate angle from preview point position
-            double angle = Math.Atan2(previewX, -previewY);
-            if (angle < 0) angle += 2 * Math.PI;
-            angle = angle / (2 * Math.PI);
+            // Calculate the center point
+            var centerX = svgWidth / 2;
+            var centerY = svgHeight / 2;
             
-            // Generate a unique client ID
-            newClientId = $"Client{DateTime.Now.Ticks % 1000}";
-            CacheSystem.AddClientIdAtPosition(newClientId, angle);
+            // Calculate relative mouse position from center
+            double relativeX = e.OffsetX - centerX;
+            double relativeY = e.OffsetY - centerY;
+            
+            // Scale to SVG coordinates (-110 to 110)
+            double scale = 220.0 / Math.Min(svgWidth, svgHeight);
+            double mouseX = relativeX * scale;
+            double mouseY = relativeY * scale;
+            
+            // Calculate angle from mouse position
+            double angle = Math.Atan2(mouseX, -mouseY);
+            if (angle < 0) angle += 2 * Math.PI;
+            double normalizedAngle = angle / (2 * Math.PI);
+            
+            Console.WriteLine($"Click angle: {normalizedAngle}");
+            
+            // Convert angle to hash value by calculating each hex digit
+            var hexDigits = "0123456789ABCDEF";
+            var hashBuilder = new System.Text.StringBuilder();
+            
+            // Use angle to generate all 40 hex digits
+            double currentPosition = normalizedAngle;
+            for (int i = 0; i < 40; i++)
+            {
+                // Scale current position to 0-16 range
+                currentPosition *= 16;
+                // Get the integer part as hex digit
+                int digit = (int)currentPosition;
+                hashBuilder.Append(hexDigits[digit]);
+                // Keep the fractional part for next iteration
+                currentPosition -= digit;
+            }
+            
+            var hash = hashBuilder.ToString();
+            Console.WriteLine($"Click generated hash: {hash}");
+            CacheSystem.AddClientIdAtPosition(hash, normalizedAngle);
         }
     }
 
