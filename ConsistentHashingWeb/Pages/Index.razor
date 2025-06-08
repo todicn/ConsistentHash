@@ -20,6 +20,9 @@
                             <!-- Client circle -->
                             <circle cx="0" cy="0" r="80" class="client-circle" />
 
+                            <!-- Start marker (0/360 degrees) -->
+                            <line x1="0" y1="-85" x2="0" y2="-75" class="circle-marker" />
+
                             <!-- Guide line -->
                             @if (showPreview)
                             {
@@ -30,24 +33,30 @@
                             <!-- Server nodes -->
                             @foreach (var node in CacheSystem.GetVirtualNodePositions())
                             {
-                                var angle = node.Position * 2 * Math.PI;
+                                // Position starts at top (0) and goes clockwise
+                                // Normalize position to 0-1 range and calculate coordinates
+                                var normalizedPos = node.Position - Math.Floor(node.Position);
+                                var angle = normalizedPos * 2 * Math.PI;
                                 var x = Math.Sin(angle) * 80;
-                                var y = -Math.Cos(angle) * 80;
+                                var y = Math.Cos(angle) * -80;
                                 <g transform="translate(@x,@y)">
                                     <circle cx="0" cy="0" r="4" class="server-node" />
-                                    <text class="node-label">S@(node.Name[..3])</text>
+                                    <text class="node-label">@(node.Name[..3])</text>
                                 </g>
                             }
 
                             <!-- Client nodes -->
-                            @foreach (var client in CacheSystem.GetClientPositions())
+                            @foreach (var node in CacheSystem.GetClientPositions())
                             {
-                                var angle = client.Position * 2 * Math.PI;
+                                // Position starts at top (0) and goes clockwise
+                                // Normalize position to 0-1 range and calculate coordinates
+                                var normalizedPos = node.Position - Math.Floor(node.Position);
+                                var angle = normalizedPos * 2 * Math.PI;
                                 var x = Math.Sin(angle) * 80;
-                                var y = -Math.Cos(angle) * 80;
+                                var y = Math.Cos(angle) * -80;
                                 <g transform="translate(@x,@y)">
                                     <circle cx="0" cy="0" r="3" class="client-node" />
-                                    <text class="node-label">C@(client.Id[..3])</text>
+                                    <text class="node-label">@(node.Id[..3])</text>
                                 </g>
                             }
                         </svg>
@@ -138,6 +147,42 @@
         cursor: crosshair;
         display: block;
     }
+
+    .client-circle {
+        fill: none;
+        stroke: #ccc;
+        stroke-width: 1;
+    }
+
+    .circle-marker {
+        stroke: #666;
+        stroke-width: 2;
+    }
+
+    .guide-line {
+        stroke: #999;
+        stroke-width: 1;
+        stroke-dasharray: 4;
+    }
+
+    .preview-point {
+        fill: #999;
+    }
+
+    .server-node {
+        fill: #4CAF50;
+    }
+
+    .client-node {
+        fill: #2196F3;
+    }
+
+    .node-label {
+        font-size: 10px;
+        text-anchor: middle;
+        dominant-baseline: text-before-edge;
+        transform: translateY(-10px);
+    }
 </style>
 
 @code {
@@ -161,10 +206,9 @@
         // Initialize test configuration with two servers at opposite positions
         if (!CacheSystem.GetAllServers().Any())
         {
-            // Create two servers at 1/4 and 3/4 of the hash space
-            // Use exact hex values to position servers
-            var server1Hash = "4000000000000000000000000000000000000000"; // 1/4 of hash space
-            var server2Hash = "C000000000000000000000000000000000000000"; // 3/4 of hash space
+            // Create two servers at top (0) and bottom (180 degrees)
+            var server1Hash = "0000000000000000000000000000000000000000"; // 0 degrees (top)
+            var server2Hash = "8000000000000000000000000000000000000000"; // 180 degrees (bottom)
             
             Console.WriteLine($"Server 1 hash: {server1Hash}");
             Console.WriteLine($"Server 2 hash: {server2Hash}");
@@ -201,23 +245,13 @@
         double mouseX = relativeX * scale;
         double mouseY = relativeY * scale;
         
-        // Calculate distance from center
-        double distance = Math.Sqrt(mouseX * mouseX + mouseY * mouseY);
+        previewX = mouseX;
+        previewY = mouseY;
         
-        // Only show preview when mouse is near the client circle (radius 80)
-        if (Math.Abs(distance - 80) < 20)
-        {
-            showPreview = true;
-            
-            // Project the point onto the circle with radius 80
-            double ratio = 80.0 / distance;
-            previewX = mouseX * ratio;
-            previewY = mouseY * ratio;
-        }
-        else
-        {
-            showPreview = false;
-        }
+        // Only show preview if mouse is within reasonable distance of circle
+        var distance = Math.Sqrt(mouseX * mouseX + mouseY * mouseY);
+        showPreview = distance > 60 && distance < 100;
+        
         StateHasChanged();
     }
 
@@ -238,8 +272,8 @@
             double mouseX = relativeX * scale;
             double mouseY = relativeY * scale;
             
-            // Calculate angle from mouse position
-            double angle = Math.Atan2(mouseX, -mouseY);
+            // Calculate angle from mouse position (0 at top, clockwise)
+            double angle = Math.Atan2(mouseY, mouseX) + Math.PI / 2;
             if (angle < 0) angle += 2 * Math.PI;
             double normalizedAngle = angle / (2 * Math.PI);
             

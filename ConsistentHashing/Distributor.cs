@@ -16,6 +16,8 @@ namespace ConsistentHashing
         private readonly int _virtualNodeCount;
         private const int MAX_RETRY = 3;
         private static readonly BigInteger MAX_HASH = BigInteger.Parse("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", System.Globalization.NumberStyles.HexNumber);
+        private const int POSITION_SCALE = 1000000; // Use 6 decimal places of precision
+        private const int HASH_BITS = 160; // SHA1 produces 160 bits
 
         public Distributor(MockNoSqlTable noSqlTable, int virtualNodeCount)
         {
@@ -48,8 +50,8 @@ namespace ConsistentHashing
                 var randomBig = new BigInteger(bytes);
                 if (randomBig < 0) randomBig = -randomBig; // Ensure positive
                 
-                // Scale the random number to our desired range and add to base
-                var offset = (randomBig * range) / BigInteger.Parse("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", System.Globalization.NumberStyles.HexNumber);
+                // Scale the random number to our desired range
+                var offset = (randomBig * range) / MAX_HASH;
                 Console.WriteLine($"Random offset {i}: {offset.ToString("X40")}");
                 
                 // Add offset to base value and handle wrapping
@@ -119,7 +121,8 @@ namespace ConsistentHashing
             var hexDigits = "0123456789ABCDEF";
             var hashBuilder = new System.Text.StringBuilder();
             
-            // Use position to generate all 40 hex digits
+            // Adjust position to match the circle's coordinate system (0 at top, clockwise)
+            // No adjustment needed now since our coordinate systems match
             double currentPosition = position;
             for (int i = 0; i < 40; i++)
             {
@@ -169,27 +172,64 @@ namespace ConsistentHashing
             }
         }
 
+        private BigInteger ParseHashToPositiveBigInt(string hexHash)
+        {
+            // Ensure we parse as unsigned by adding a leading 0 if needed
+            if (hexHash.Length % 2 == 1)
+            {
+                hexHash = "0" + hexHash;
+            }
+            
+            byte[] bytes = new byte[hexHash.Length / 2 + 1];
+            // Parse hex string to bytes
+            for (int i = 0; i < hexHash.Length; i += 2)
+            {
+                bytes[i / 2] = byte.Parse(hexHash.Substring(i, 2), System.Globalization.NumberStyles.HexNumber);
+            }
+            // Add an extra 0 byte at the end to ensure positive
+            bytes[bytes.Length - 1] = 0;
+            
+            // Create BigInteger from bytes (will be positive due to extra 0 byte)
+            return new BigInteger(bytes);
+        }
+
+        private double HashToPosition(string hexHash)
+        {
+            // Take first 8 hex digits (32 bits)
+            string truncatedHash = hexHash.Length > 8 ? hexHash.Substring(0, 8) : hexHash.PadLeft(8, '0');
+            uint value = uint.Parse(truncatedHash, System.Globalization.NumberStyles.HexNumber);
+            Console.WriteLine($"Hash: {hexHash}, Truncated: {truncatedHash}, Value: {value}");
+            
+            // Convert to position between 0 and 1
+            double position = (double)value / uint.MaxValue;
+            Console.WriteLine($"Position: {position}");
+            return position;
+        }
+
         public IEnumerable<VirtualNodeInfo> GetVirtualNodePositions()
         {
-            return _virtualNodes
-                .Select(kvp => new VirtualNodeInfo(
-                    kvp.Key,
-                    (double)BigInteger.Parse(kvp.Key, System.Globalization.NumberStyles.HexNumber) / (double)MAX_HASH,
-                    _servers.TryGetValue(kvp.Value, out var server) && server.IsDown
-                ))
+            var positions = _virtualNodes
+                .Select(kvp => {
+                    var position = HashToPosition(kvp.Key);
+                    return new VirtualNodeInfo(
+                        kvp.Key,
+                        position,
+                        _servers.TryGetValue(kvp.Value, out var server) && server.IsDown
+                    );
+                })
                 .OrderBy(n => n.Position);
+            return positions;
         }
 
         public IEnumerable<ClientNodeInfo> GetClientPositions()
         {
             return _servers.Values
                 .SelectMany(s => s.ClientIds)
-                .Select(clientId =>
-                {
-                    var position = BigInteger.Parse(clientId, System.Globalization.NumberStyles.HexNumber);
+                .Select(clientId => {
+                    var position = HashToPosition(clientId);
                     return new ClientNodeInfo(
                         clientId,
-                        (double)position / (double)MAX_HASH
+                        position
                     );
                 })
                 .OrderBy(n => n.Position);
