@@ -3,24 +3,35 @@ using System.Collections.Generic;
 
 namespace ConsistentHashing;
 
+public enum ServerState
+{
+    Available,
+    TemporarilyOffline,
+    Down
+}
+
 public class CacheServer
 {
     public string Name { get; }
-    public bool IsDown { get; private set; }
+    public ServerState State { get; private set; }
     public HashSet<string> ClientIds { get; }
 
     public CacheServer(string name)
     {
         Name = name;
-        IsDown = false;
+        State = ServerState.Available;
         ClientIds = new HashSet<string>();
     }
 
     public void AddClientId(string clientId)
     {
-        if (!IsDown)
+        if (State == ServerState.Available)
         {
             ClientIds.Add(clientId);
+        }
+        else
+        {
+            throw new InvalidOperationException($"Cannot add client to server in state: {State}");
         }
     }
 
@@ -29,14 +40,23 @@ public class CacheServer
         ClientIds.Remove(clientId);
     }
 
-    public void Shutdown()
+    public void MarkTemporarilyOffline()
     {
-        IsDown = true;
+        State = ServerState.TemporarilyOffline;
+    }
+
+    public void MarkDown()
+    {
+        State = ServerState.Down;
         ClientIds.Clear();
     }
 
     public void BringUp()
     {
-        IsDown = false;
+        State = ServerState.Available;
     }
+
+    public bool IsAvailable => State == ServerState.Available;
+    public bool IsDown => State == ServerState.Down;
+    public bool IsTemporarilyOffline => State == ServerState.TemporarilyOffline;
 } 

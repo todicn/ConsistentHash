@@ -47,6 +47,17 @@ namespace ConsistentHashingWeb.Services
             NotifyStateChanged();
         }
 
+        public void BringUpServer(string serverName)
+        {
+            _distributor.BringUpServer(serverName);
+            NotifyStateChanged();
+        }
+
+        public int GetServerFailureCount(string serverName)
+        {
+            return _distributor.GetServerFailureCount(serverName);
+        }
+
         public void AddClientId(string clientId)
         {
             _distributor.AddClientId(clientId);
@@ -82,6 +93,6 @@ namespace ConsistentHashingWeb.Services
             return _distributor.GetClientPositions();
         }
 
-            private void NotifyStateChanged() => OnChange?.Invoke();
-}
+        private void NotifyStateChanged() => OnChange?.Invoke();
+    }
 } 

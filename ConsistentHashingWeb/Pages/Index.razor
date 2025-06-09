@@ -39,8 +39,10 @@
                                 var angle = normalizedPos * 2 * Math.PI;
                                 var x = Math.Sin(angle) * 80;
                                 var y = Math.Cos(angle) * -80;
+                                var isMainNode = CacheSystem.GetAllServers().Any(s => s.Name == node.Name);
                                 <g transform="translate(@x,@y)">
-                                    <circle cx="0" cy="0" r="4" class="server-node" />
+                                    <circle cx="0" cy="0" r="@(isMainNode ? 4 : 2)" 
+                                           class="@(isMainNode ? "main-server-node" : "virtual-server-node") @(node.IsDown ? "node-down" : "")" />
                                     <text class="node-label">@(node.Name[..3])</text>
                                 </g>
                             }
@@ -116,9 +118,21 @@
                                 <h6 class="card-title mb-1">@server.Name</h6>
                                 <p class="card-text small mb-1">Status: @(server.IsDown ? "Down" : "Up")</p>
                                 <p class="card-text small mb-1">Clients: @server.ClientIds.Count</p>
-                                <button class="btn btn-warning btn-sm" @onclick="() => ToggleServer(server.Name)">
-                                    @(server.IsDown ? "Bring Up" : "Shut Down")
-                                </button>
+                                <p class="card-text small mb-1">Failed Hits: @CacheSystem.GetServerFailureCount(server.Name)</p>
+                                <div class="d-flex gap-2">
+                                    @if (server.IsDown)
+                                    {
+                                        <button class="btn btn-warning btn-sm" @onclick="() => BringUpServer(server.Name)">
+                                            Bring Up
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-danger btn-sm" @onclick="() => ToggleServer(server.Name)">
+                                            Shut Down
+                                        </button>
+                                    }
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -169,8 +183,18 @@
         fill: #999;
     }
 
-    .server-node {
-        fill: #4CAF50;
+    .main-server-node {
+        fill: #2E7D32;
+        stroke: white;
+        stroke-width: 2;
+    }
+
+    .virtual-server-node {
+        fill: #81C784;
+    }
+
+    .node-down {
+        fill: #B71C1C;
     }
 
     .client-node {
@@ -178,10 +202,10 @@
     }
 
     .node-label {
-        font-size: 10px;
+        font-size: 5px;
         text-anchor: middle;
         dominant-baseline: text-before-edge;
-        transform: translateY(-10px);
+        transform: translateY(-8px);
     }
 </style>
 
@@ -311,6 +335,11 @@
     private void ToggleServer(string serverName)
     {
         CacheSystem.ToggleServer(serverName);
+    }
+
+    private void BringUpServer(string serverName)
+    {
+        CacheSystem.BringUpServer(serverName);
     }
 
     public void Dispose()
